@@ -1,0 +1,48 @@
+# @package _global_
+geoguide:
+  # Disabled preserves the original TextOp sampling path exactly.
+  enabled: false
+  task:
+    enabled: false
+    type: waypoint
+    target:
+      frame: robot_start       # world / robot_start / generator
+      position: [2.0, 1.0, 0.0]
+      velocity: [0.0, 0.0, 0.0]
+      heading: 0.0
+    weights:
+      waypoint: 1.0
+      velocity: 1.0
+      heading: 1.0
+      obstacle: 1.0
+    obstacles: []
+  latent_bank:
+    path: assets/geoguide/latent_bank.pt
+    metadata_path: assets/geoguide/latent_bank_meta.pt
+    latent_dim: 128
+    feature_version: 3
+    scale_latent: false
+    vae_sha256: 6522ab17b8904d1ea6a1dcdef241090000706b485312a319007dc4bb3eac8955
+  neighborhood:
+    mode: semantic_then_geometry  # geometry / semantic / weighted / semantic_then_geometry
+    semantic_top_m: 1024
+    geometric_top_k: 64
+    semantic_weight: 0.5
+  subspace:
+    mode: local_pca               # none / identity / local_pca
+    rank: 16
+  geometry:
+    decoder_enabled: true
+    support_enabled: true
+    beta: 0.1
+    damping: 1.0e-4
+  solver:
+    eta: 0.05
+  trust_region:
+    enabled: true
+    rho: 0.10
+  adaptive:
+    update_u: true
+    update_h: true
+  schedule:
+    guided_steps: [3, 2, 1]

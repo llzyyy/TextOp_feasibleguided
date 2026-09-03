@@ -501,6 +501,37 @@ class GaussianDiffusion:
         out["mean"], _, _ = self.q_posterior_mean_variance(x_start=out["pred_xstart"], x_t=x, t=t)
         return out
 
+    def condition_clean_xstart(self, clean_guidance_fn, p_mean_var, x, t, model_kwargs=None):
+        """Apply inference-time guidance to the predicted clean latent.
+
+        Unlike the legacy classifier-style ``cond_fn`` path, GeoGuide updates
+        ``pred_xstart`` directly, then recomputes the DDPM posterior from the
+        unchanged noisy latent. A ``None`` callback leaves the baseline path
+        byte-for-byte untouched.
+        """
+        guided_xstart = clean_guidance_fn(
+            x,
+            t,
+            p_mean_var["pred_xstart"],
+            model_kwargs=model_kwargs,
+        )
+        if isinstance(guided_xstart, dict):
+            guided_xstart = guided_xstart["pred_xstart"]
+        if not isinstance(guided_xstart, th.Tensor):
+            raise TypeError("clean_guidance_fn must return a Tensor or {'pred_xstart': Tensor}")
+        if guided_xstart.shape != p_mean_var["pred_xstart"].shape:
+            raise ValueError(
+                f"clean guidance changed shape {p_mean_var['pred_xstart'].shape} -> {guided_xstart.shape}"
+            )
+        if not th.isfinite(guided_xstart).all():
+            raise FloatingPointError("clean guidance returned non-finite values")
+
+        out = p_mean_var.copy()
+        out["pred_xstart"] = guided_xstart
+        out["guided_eps"] = self._predict_eps_from_xstart(x, t, guided_xstart)
+        out["mean"], _, _ = self.q_posterior_mean_variance(x_start=guided_xstart, x_t=x, t=t)
+        return out
+
     def p_sample(
         self,
         model,
@@ -509,6 +540,7 @@ class GaussianDiffusion:
         clip_denoised=True,
         denoised_fn=None,
         cond_fn=None,
+        clean_guidance_fn=None,
         model_kwargs=None,
         const_noise=False,
     ):
@@ -537,6 +569,8 @@ class GaussianDiffusion:
             denoised_fn=denoised_fn,
             model_kwargs=model_kwargs,
         )
+        if clean_guidance_fn is not None:
+            out = self.condition_clean_xstart(clean_guidance_fn, out, x, t, model_kwargs=model_kwargs)
         noise = th.randn_like(x)
         # print('const_noise', const_noise)
         if const_noise:
@@ -560,6 +594,7 @@ class GaussianDiffusion:
         clip_denoised=True,
         denoised_fn=None,
         cond_fn=None,
+        clean_guidance_fn=None,
         model_kwargs=None,
     ):
         """
@@ -589,6 +624,8 @@ class GaussianDiffusion:
                 denoised_fn=denoised_fn,
                 model_kwargs=model_kwargs,
             )
+            if clean_guidance_fn is not None:
+                out = self.condition_clean_xstart(clean_guidance_fn, out, x, t, model_kwargs=model_kwargs)
             noise = th.randn_like(x)
             nonzero_mask = ((t != 0).float().view(-1, *([1] * (len(x.shape) - 1))))  # no noise when t == 0
             if cond_fn is not None:
@@ -604,6 +641,7 @@ class GaussianDiffusion:
         clip_denoised=True,
         denoised_fn=None,
         cond_fn=None,
+        clean_guidance_fn=None,
         model_kwargs=None,
         device=None,
         progress=False,
@@ -646,6 +684,7 @@ class GaussianDiffusion:
                 clip_denoised=clip_denoised,
                 denoised_fn=denoised_fn,
                 cond_fn=cond_fn,
+                clean_guidance_fn=clean_guidance_fn,
                 model_kwargs=model_kwargs,
                 device=device,
                 progress=progress,
@@ -671,6 +710,7 @@ class GaussianDiffusion:
         clip_denoised=True,
         denoised_fn=None,
         cond_fn=None,
+        clean_guidance_fn=None,
         model_kwargs=None,
         device=None,
         progress=False,
@@ -726,6 +766,7 @@ class GaussianDiffusion:
                     clip_denoised=clip_denoised,
                     denoised_fn=denoised_fn,
                     cond_fn=cond_fn,
+                    clean_guidance_fn=clean_guidance_fn,
                     model_kwargs=model_kwargs,
                     const_noise=const_noise,
                 )

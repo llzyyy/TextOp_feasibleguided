@@ -23,6 +23,49 @@ motion_block:
 topics:
   toggle: "/dar/toggle"           # Topic to start/stop inference
   motion_output: "/dar/motion"    # Topic to publish motion blocks
+  odometry: "/odom"               # Simulation/robot pose for world-frame GeoGuide tasks
+
+# Same schema as TextOpRobotMDAR/robotmdar/config/guidance/geoguide.yaml.
+# Keep disabled until a compatible latent bank has been built.
+geoguide:
+  enabled: false
+  task:
+    enabled: false
+    type: waypoint
+    target:
+      frame: robot_start
+      position: [2.0, 1.0, 0.0]
+    obstacles: []
+  latent_bank:
+    path: assets/geoguide/latent_bank.pt
+    metadata_path: assets/geoguide/latent_bank_meta.pt
+    latent_dim: 128
+    feature_version: 3
+    scale_latent: false
+    vae_sha256: 6522ab17b8904d1ea6a1dcdef241090000706b485312a319007dc4bb3eac8955
+  neighborhood:
+    mode: semantic_then_geometry
+    semantic_top_m: 1024
+    geometric_top_k: 64
+    semantic_weight: 0.5
+  subspace:
+    mode: local_pca
+    rank: 16
+  geometry:
+    decoder_enabled: true
+    support_enabled: true
+    beta: 0.1
+    damping: 1.0e-4
+  solver:
+    eta: 0.05
+  trust_region:
+    enabled: true
+    rho: 0.10
+  adaptive:
+    update_u: true
+    update_h: true
+  schedule:
+    guided_steps: [3, 2, 1]
 
 # Control timing
 control_dt: 0.02        # Control loop frequency (50Hz)

@@ -10,7 +10,7 @@ Functions:
 
 import torch
 from torch import nn
-from typing import Tuple, Dict, Any, Optional, Union
+from typing import Tuple, Dict, Any, Optional, Union, Callable
 from robotmdar.dtype.motion import motion_dict_to_abs_pose
 
 
@@ -53,7 +53,10 @@ def generate_next_motion(
         ret_fk: bool = False,
         ret_fk_full: bool = False,
         use_vae=True,
-        use_ddim=False):
+        use_ddim=False,
+        clean_guidance_fn: Optional[Callable] = None,
+        geoguide=None,
+        task_context=None):
     """
     Generate next motion segment using DAR model.
     
@@ -73,6 +76,20 @@ def generate_next_motion(
         Tuple of (future_motion_pred, motion_dict, new_abs_pose)
     """
     device = history_motion.device
+    if clean_guidance_fn is None and geoguide is not None:
+        if task_context is None:
+            from robotmdar.guidance import TaskContext
+
+            task_context = TaskContext.from_reference_pose(
+                abs_pose['root_trans_offset'],
+                abs_pose['root_rot'],
+                motion_fps=float(getattr(val_data, 'fps', 50.0)),
+            )
+        clean_guidance_fn = geoguide.make_clean_guidance_fn(
+            history_motion,
+            text_embedding,
+            task_context,
+        )
     with torch.no_grad():
         batch_size = text_embedding.shape[0]
         # latent_shape = (batch_size, 1, 128
@@ -80,7 +97,7 @@ def generate_next_motion(
         latent_shape = (batch_size, *denoiser.noise_shape)
 
         # Sample random noise as starting point
-        # x_start_noise = torch.randn(latent_shape, device=device)
+        x_start_noise = torch.randn(latent_shape, device=device)
 
         # Sample a random timestep for demonstration (or use t=0 for no noise)
         t = torch.zeros(batch_size, dtype=torch.int32,
@@ -110,9 +127,12 @@ def generate_next_motion(
                     dump_steps=None,
                     noise=None,
                     const_noise=False,
+                    clean_guidance_fn=clean_guidance_fn,
                 )
             else:
                 # zjk: use DDIM sampling loop
+                if clean_guidance_fn is not None:
+                    raise NotImplementedError("clean-latent GeoGuide is currently integrated with DDPM sampling")
                 sample_fn = diffusion.ddim_sample_loop
                 x_start_pred = sample_fn(
                     denoiser,

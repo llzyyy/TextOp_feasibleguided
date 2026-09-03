@@ -1,0 +1,228 @@
+{
+  "schema_version": 1,
+  "project_root": "D:/TextOp_feasibleguided",
+  "inference_policy": "reuse pretrained VAE, DAR/Denoiser, and Tracker; do not retrain",
+  "interface": {
+    "feature_version": 3,
+    "nfeats": 57,
+    "history_len": 2,
+    "future_len": 8,
+    "latent_shape": [
+      1,
+      128
+    ],
+    "motion_fps": 50
+  },
+  "models": {
+    "vae": {
+      "artifacts": [
+        {
+          "path": "TextOpRobotMDAR/logs/pretrained/checkpoint/vae.pth",
+          "size_bytes": 513354942,
+          "sha256": "6522ab17b8904d1ea6a1dcdef241090000706b485312a319007dc4bb3eac8955",
+          "load": {
+            "status": "loaded",
+            "python_type": "dict",
+            "top_level_keys": [
+              "optimizer",
+              "step",
+              "vae"
+            ],
+            "interface_checks": {
+              "encoder_latent_proj.weight": {
+                "expected": [
+                  128,
+                  512
+                ],
+                "actual": [
+                  128,
+                  512
+                ],
+                "compatible": true
+              },
+              "decoder_latent_proj.weight": {
+                "expected": [
+                  512,
+                  128
+                ],
+                "actual": [
+                  512,
+                  128
+                ],
+                "compatible": true
+              },
+              "final_layer.weight": {
+                "expected": [
+                  57,
+                  512
+                ],
+                "actual": [
+                  57,
+                  512
+                ],
+                "compatible": true
+              }
+            },
+            "interface_status": "compatible"
+          }
+        }
+      ],
+      "companions": [
+        {
+          "path": "TextOpRobotMDAR/logs/pretrained/checkpoint/.hydra/config.yaml",
+          "exists": true
+        },
+        {
+          "path": "TextOpRobotMDAR/dataset/BABEL-AMASS-ROBOT-23dof-FULL-50fps/meanstd.pkl",
+          "exists": true
+        },
+        {
+          "path": "TextOpRobotMDAR/dataset/BABEL-AMASS-ROBOT-23dof-FULL-50fps/statistics.yaml",
+          "exists": true
+        }
+      ]
+    },
+    "dar_denoiser": {
+      "artifacts": [
+        {
+          "path": "TextOpRobotMDAR/logs/pretrained/checkpoint/ckpt_200000.pth",
+          "size_bytes": 223633892,
+          "sha256": "9c514d8e61d6f24b9e5b6b278b9987c9d768c7c86883e834f51e0f0c2a18f00f",
+          "load": {
+            "status": "loaded",
+            "python_type": "dict",
+            "top_level_keys": [
+              "denoiser",
+              "optimizer",
+              "step"
+            ],
+            "interface_checks": {
+              "embed_history.weight": {
+                "expected": [
+                  512,
+                  57
+                ],
+                "actual": [
+                  512,
+                  57
+                ],
+                "compatible": true
+              },
+              "embed_noise.weight": {
+                "expected": [
+                  512,
+                  128
+                ],
+                "actual": [
+                  512,
+                  128
+                ],
+                "compatible": true
+              },
+              "output_process.weight": {
+                "expected": [
+                  128,
+                  512
+                ],
+                "actual": [
+                  128,
+                  512
+                ],
+                "compatible": true
+              }
+            },
+            "interface_status": "compatible"
+          }
+        }
+      ],
+      "companions": [
+        {
+          "path": "TextOpRobotMDAR/logs/pretrained/checkpoint/.hydra/config.yaml",
+          "exists": true
+        }
+      ]
+    },
+    "tracker": {
+      "artifacts": [
+        {
+          "path": "TextOpTracker/logs/rsl_rl/Pretrained/checkpoints/latest.onnx",
+          "size_bytes": 14080545,
+          "sha256": "8df6371cce677a6ef8fd7124d082fbf98df11735b9e1aa5808f1bf9d3152b582",
+          "load": {
+            "status": "dependency_missing",
+            "dependency": "onnxruntime"
+          }
+        },
+        {
+          "path": "TextOpTracker/logs/rsl_rl/Pretrained/checkpoints/model_75000.pt",
+          "size_bytes": 87408687,
+          "sha256": "0043c99ca89b1e45e49be7fdc95dec261ab9df9a6dfeaf11cca739390421aa52",
+          "load": {
+            "status": "loaded",
+            "python_type": "dict",
+            "top_level_keys": [
+              "infos",
+              "iter",
+              "model_state_dict",
+              "obs_norm_state_dict",
+              "optimizer_state_dict",
+              "privileged_obs_norm_state_dict"
+            ],
+            "interface_checks": {
+              "std": {
+                "expected": [
+                  29
+                ],
+                "actual": [
+                  29
+                ],
+                "compatible": true
+              },
+              "actor.0.weight": {
+                "expected": [
+                  2048,
+                  431
+                ],
+                "actual": [
+                  2048,
+                  431
+                ],
+                "compatible": true
+              },
+              "actor.6.weight": {
+                "expected": [
+                  29,
+                  512
+                ],
+                "actual": [
+                  29,
+                  512
+                ],
+                "compatible": true
+              }
+            },
+            "interface_status": "compatible"
+          }
+        }
+      ],
+      "companions": [
+        {
+          "path": "TextOpDeploy/src/textop_ctrl/config/g1_29dof.yaml",
+          "exists": true
+        },
+        {
+          "path": "TextOpTracker/source/textop_tracker/textop_tracker/tasks/tracking/config/g1/flat_env_cfg.py",
+          "exists": true
+        }
+      ]
+    }
+  },
+  "missing_required": [],
+  "cross_checks": {
+    "tracker_onnx_matches_deployment_policy": {
+      "tracker_path": "TextOpTracker/logs/rsl_rl/Pretrained/checkpoints/latest.onnx",
+      "deployment_path": "TextOpDeploy/src/textop_ctrl/models/policy.onnx",
+      "compatible": true
+    }
+  }
+}

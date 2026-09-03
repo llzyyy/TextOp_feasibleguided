@@ -1,7 +1,7 @@
 
 motion_lib_type: 'origin'
 asset:
-  assetRoot: "description/"
+  assetRoot: "description/robots/g1"
   assetFileName: "g1_23dof_lock_wrist_fitmotionONLY.xml"
   
 

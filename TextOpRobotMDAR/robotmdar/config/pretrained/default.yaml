@@ -1,0 +1,13 @@
+# @package _global_
+# Single source of truth for the downloaded inference artifacts.
+pretrained_manifest: ../pretrained_manifest.json
+ckpt:
+  vae: logs/pretrained/checkpoint/vae.pth
+  dar: logs/pretrained/checkpoint/ckpt_200000.pth
+data:
+  datadir: dataset/BABEL-AMASS-ROBOT-23dof-FULL-50fps
+  action_statistics_path: dataset/BABEL-AMASS-ROBOT-23dof-FULL-50fps/action_statistics.json
+skeleton:
+  asset:
+    assetRoot: description/robots/g1
+    assetFileName: g1_23dof_lock_wrist_fitmotionONLY.xml

@@ -16,6 +16,7 @@ import threading
 import time
 import numpy as np
 import sys
+from pathlib import Path
 
 import clip
 import numpy as np
@@ -36,6 +37,7 @@ from robotmdar.train.manager import DARManager
 # import torch_tensorrt
 from robotmdar.wrapper.vae_decode import DecoderWrapper
 from robotmdar.dtype.debug import pdb_decorator
+from robotmdar.guidance import build_geoguide, make_vae_decoder
 
 # import torch_tensorrt
 
@@ -149,6 +151,18 @@ def main(cfg: DictConfig):
     future_len = cfg.data.future_len
     history_len = cfg.data.history_len
 
+    geoguide = None
+    if cfg.get("geoguide") is not None and bool(cfg.geoguide.get("enabled", False)):
+        project_root = Path(__file__).resolve().parents[3]
+        geoguide = build_geoguide(
+            cfg.geoguide,
+            make_vae_decoder(vae, future_len),
+            project_root=project_root,
+            feature_mean=val_data.mean,
+            feature_std=val_data.std,
+        )
+        logger.info("GeoGuide enabled with clean-latent DDPM write-back")
+
     # Initialize state
     loop_state = LoopState()
 
@@ -220,7 +234,8 @@ def main(cfg: DictConfig):
                 future_len=future_len,
                 # cfg=cfg,
                 use_full_sample=cfg.use_full_sample,
-                guidance_scale=cfg.guidance_scale)
+                guidance_scale=cfg.guidance_scale,
+                geoguide=geoguide)
 
             # Update history for next generation (autoregressive)
             history_motion = future_motion[:, -history_len:, :]

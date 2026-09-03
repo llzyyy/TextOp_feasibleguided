@@ -1,0 +1,10 @@
+# A0-A7 are configuration-only method variants. Formal experiments remain manual.
+presets:
+  A0: {enabled: false, task: false, subspace: none, decoder_h: false, support_h: false, trust: false}
+  A1: {enabled: true,  task: true,  subspace: none, decoder_h: false, support_h: false, trust: false}
+  A2: {enabled: true,  task: true,  subspace: local_pca, decoder_h: false, support_h: false, trust: false}
+  A3: {enabled: true,  task: true,  subspace: identity, decoder_h: true, support_h: false, trust: false}
+  A4: {enabled: true,  task: true,  subspace: local_pca, decoder_h: true, support_h: false, trust: false}
+  A5: {enabled: true,  task: true,  subspace: local_pca, decoder_h: false, support_h: true, trust: false}
+  A6: {enabled: true,  task: true,  subspace: local_pca, decoder_h: true, support_h: true, trust: false}
+  A7: {enabled: true,  task: true,  subspace: local_pca, decoder_h: true, support_h: true, trust: true}

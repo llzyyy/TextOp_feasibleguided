@@ -17,6 +17,7 @@ import torch._dynamo
 torch._dynamo.config.suppress_errors = True
 
 from builtin_interfaces.msg import Time
+from nav_msgs.msg import Odometry
 from textop_ctrl.msg import MotionBlock
 
 from std_msgs.msg import Float32MultiArray, MultiArrayDimension
@@ -33,6 +34,7 @@ from robotmdar.skeleton.robot import RobotSkeleton
 from robotmdar.skeleton.forward_kinematics import ForwardKinematics
 from robotmdar.eval.generate_dar import ClassifierFreeWrapper, generate_next_motion
 from robotmdar.model.clip import load_and_freeze_clip, encode_text
+from robotmdar.guidance import TaskContext, build_geoguide, make_vae_decoder
 
 
 def warmup(vae_trt, cfg_denoiser, diffusion, val_data, clip_model, future_len,
@@ -208,6 +210,10 @@ class MotionDAR(Node):
         self.use_full_sample = cfg.dar.use_full_sample
         self.guidance_scale = cfg.dar.guidance_scale
         self._device = cfg.dar.device
+        self._robot_world_position = None
+        self._robot_world_yaw = None
+        self._task_start_position = None
+        self._task_start_yaw = None
 
         # Motion block parameters
         self.block_size = cfg.motion_block.block_size
@@ -222,6 +228,13 @@ class MotionDAR(Node):
         self.motion_publisher = self.create_publisher(MotionBlock,
                                                       cfg.topics.motion_output,
                                                       10)
+
+        self.odom_subscriber = self.create_subscription(
+            Odometry,
+            cfg.topics.odometry,
+            self._odometry_callback,
+            10,
+        )
 
         self.reset_subscriber = self.create_subscription(
             Time,
@@ -247,6 +260,21 @@ class MotionDAR(Node):
 
         self.get_logger().info(
             "Waiting for /dar/toggle to start generating...")
+
+    def _odometry_callback(self, msg: Odometry):
+        """Cache simulation world pose as non-differentiable TaskContext."""
+        position = msg.pose.pose.position
+        orientation = msg.pose.pose.orientation
+        self._robot_world_position = torch.tensor(
+            [[position.x, position.y, position.z]],
+            device=self._device,
+            dtype=torch.float32,
+        )
+        yaw = np.arctan2(
+            2.0 * (orientation.w * orientation.z + orientation.x * orientation.y),
+            1.0 - 2.0 * (orientation.y * orientation.y + orientation.z * orientation.z),
+        )
+        self._robot_world_yaw = torch.tensor([yaw], device=self._device, dtype=torch.float32)
 
     def _create_msg_array(self, data, dimensions_info):
         """Helper function to create Float32MultiArray with proper dimension info"""
@@ -401,6 +429,17 @@ class MotionDAR(Node):
         self.future_len = cfg.data.future_len
         self.history_len = cfg.data.history_len
         self.gen_len = self.history_len + self.future_len
+        self.geoguide = None
+        if self.config.get("geoguide") is not None and bool(self.config.geoguide.get("enabled", False)):
+            project_root = Path(__file__).resolve().parents[4]
+            self.geoguide = build_geoguide(
+                self.config.geoguide,
+                make_vae_decoder(vae, self.future_len),
+                project_root=project_root,
+                feature_mean=val_data.mean,
+                feature_std=val_data.std,
+            )
+            self.get_logger().info("GeoGuide enabled; PyTorch VAE retained for task gradients/JVP")
         self.dar_gen_fn = partial(generate_next_motion,
                                   vae=vae_trt,
                                   denoiser=cfg_denoiser,
@@ -409,6 +448,7 @@ class MotionDAR(Node):
                                   future_len=self.future_len,
                                   use_full_sample=self.use_full_sample,
                                   guidance_scale=self.guidance_scale,
+                                  geoguide=self.geoguide,
                                   ret_fk=True,
                                   ret_fk_full=False)
 
@@ -443,6 +483,10 @@ class MotionDAR(Node):
         if not self._start_infer:
             self.get_logger().info("Start inference")
             self._reset_motion_buffer()
+            self._task_start_position = (
+                None if self._robot_world_position is None else self._robot_world_position.detach().clone()
+            )
+            self._task_start_yaw = None if self._robot_world_yaw is None else self._robot_world_yaw.detach().clone()
         else:
             self.get_logger().info("Stop inference")
 
@@ -471,10 +515,35 @@ class MotionDAR(Node):
     def _gen_motion(self):
         t0 = time.time()
 
+        task_context = None
+        if self.geoguide is not None:
+            reference_position = self.history_abs_pose['root_trans_offset']
+            reference_yaw_quaternion = self.history_abs_pose['root_rot']
+            reference_context = TaskContext.from_reference_pose(
+                reference_position,
+                reference_yaw_quaternion,
+                motion_fps=float(self.dataset.fps),
+            )
+            robot_position = self._robot_world_position
+            robot_yaw = self._robot_world_yaw
+            if robot_position is None or robot_yaw is None:
+                robot_position = reference_context.robot_world_position
+                robot_yaw = reference_context.robot_world_yaw
+            task_context = TaskContext(
+                robot_world_position=robot_position,
+                robot_world_yaw=robot_yaw,
+                generator_position=reference_context.generator_position,
+                generator_yaw=reference_context.generator_yaw,
+                robot_start_position=(self._task_start_position if self._task_start_position is not None else robot_position),
+                robot_start_yaw=(self._task_start_yaw if self._task_start_yaw is not None else robot_yaw),
+                motion_fps=float(self.dataset.fps),
+            )
+
         future_motion, gen_motion_dict, abs_pose = self.dar_gen_fn(
             text_embedding=self._text_embedding,
             history_motion=self.history_motion,
-            abs_pose=self.history_abs_pose)
+            abs_pose=self.history_abs_pose,
+            task_context=task_context)
 
         t02 = time.time()
         self.get_logger().debug(

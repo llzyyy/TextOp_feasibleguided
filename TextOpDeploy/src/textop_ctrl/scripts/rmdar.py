@@ -4,17 +4,23 @@ import logging
 from pathlib import Path
 from omegaconf import OmegaConf
 from functools import partial
+from types import SimpleNamespace
 from pathlib import Path
 from typing import Deque, Dict, Any, Optional, List, Union
 import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 import torch
-import torch_tensorrt
+try:
+    import torch_tensorrt
+    _TRT_IMPORT_ERROR = None
+except (ImportError, OSError) as exc:
+    torch_tensorrt = None
+    _TRT_IMPORT_ERROR = str(exc)
 
 import torch._dynamo
 
-torch._dynamo.config.suppress_errors = True
+torch._dynamo.config.suppress_errors = False
 
 from builtin_interfaces.msg import Time
 from nav_msgs.msg import Odometry
@@ -386,6 +392,7 @@ class MotionDAR(Node):
         cfg.data.val.batch_size = 1
         cfg.use_full_sample = self.use_full_sample
         cfg.guidance_scale = self.guidance_scale
+        cfg.seed = int(self.config.dar.get("seed", cfg.seed))
 
         seed.set(cfg.seed)
         self.clip_model = load_and_freeze_clip("ViT-B/32", device=self._device)
@@ -404,24 +411,29 @@ class MotionDAR(Node):
         manager: DARManager = instantiate(cfg.train.manager)
         manager.hold_model(vae, denoiser, None, val_data)
 
-        # vae_trt = vae
-        # denoiser_trt = denoiser
-        try:
-            vae_trt = torch.compile(vae, backend='tensorrt')
-            denoiser_trt = torch.compile(denoiser, backend='tensorrt')
-        except KeyError as e:
-            error_key = e.args[0]
-            if error_key == 'torch_dynamo_backends':
-                # Now we are in jetson env, which does not support torch.compile
-                vae_trt, denoiser_trt = jetson_compatible_torch_compile(
-                    vae, denoiser, cfg)
-            else:
-                raise e
+        backend = str(self.config.dar.get("compile_backend", "tensorrt")).lower()
+        allow_fallback = bool(self.config.dar.get("allow_compile_fallback", True))
+        if backend not in ("tensorrt", "eager"):
+            raise ValueError(f"Unknown compile backend: {backend}")
+        vae_runtime, denoiser_runtime = vae, denoiser
+        if backend == "tensorrt":
+            try:
+                if torch_tensorrt is None:
+                    raise RuntimeError(f"Torch-TensorRT unavailable: {_TRT_IMPORT_ERROR}")
+                # Generation calls decode(), not forward(); compile that entry point.
+                # Keep the original VAE unmodified for GeoGuide autograd/JVP.
+                vae_runtime = SimpleNamespace(decode=torch.compile(
+                    vae.decode, backend="tensorrt",
+                    options={"pass_through_build_failures": True}))
+                denoiser_runtime = torch.compile(denoiser, backend="tensorrt", options={"pass_through_build_failures": True})
+            except Exception as exc:
+                if not allow_fallback:
+                    raise
+                self.get_logger().warning(f"TensorRT setup failed; using eager: {exc}")
+                vae_runtime, denoiser_runtime = vae, denoiser
+                backend = "eager"
 
-        # vae_trt = torch.compile(vae, backend='inductor')
-        # denoiser_trt = torch.compile(denoiser, backend='inductor')
-
-        cfg_denoiser = ClassifierFreeWrapper(denoiser_trt)
+        cfg_denoiser = ClassifierFreeWrapper(denoiser_runtime)
 
         self.dataset = val_data
         self.dataiter = iter(val_data)
@@ -441,7 +453,7 @@ class MotionDAR(Node):
             )
             self.get_logger().info("GeoGuide enabled; PyTorch VAE retained for task gradients/JVP")
         self.dar_gen_fn = partial(generate_next_motion,
-                                  vae=vae_trt,
+                                  vae=vae_runtime,
                                   denoiser=cfg_denoiser,
                                   diffusion=diffusion,
                                   val_data=val_data,
@@ -452,8 +464,21 @@ class MotionDAR(Node):
                                   ret_fk=True,
                                   ret_fk_full=False)
 
-        self.warmup(vae_trt, cfg_denoiser, diffusion, val_data,
-                    self.clip_model, self.future_len, self.history_len, cfg)
+        # torch.compile is lazy: exercise the runtime before declaring it ready.
+        try:
+            self.warmup(vae_runtime, cfg_denoiser, diffusion, val_data,
+                        self.clip_model, self.future_len, self.history_len, cfg)
+        except Exception as exc:
+            if backend != "tensorrt" or not allow_fallback:
+                raise
+            self.get_logger().warning(f"TensorRT warmup failed; retrying eager: {exc}")
+            backend = "eager"
+            vae_runtime, denoiser_runtime = vae, denoiser
+            cfg_denoiser = ClassifierFreeWrapper(denoiser_runtime)
+            self.dar_gen_fn = partial(self.dar_gen_fn, vae=vae_runtime, denoiser=cfg_denoiser)
+            self.warmup(vae_runtime, cfg_denoiser, diffusion, val_data,
+                        self.clip_model, self.future_len, self.history_len, cfg)
+        self.get_logger().info(f"DAR runtime backend: {backend}")
 
         self._reset_motion_buffer()
         self._update_text_embedding()
@@ -574,6 +599,11 @@ class MotionDAR(Node):
         t2 = time.time()
         self.get_logger().debug(
             f"Convert motion to message instance in {(t2 - t1) * 1000:.2f} ms")
+        if self._init_done and bool(self.config.dar.get("profile_generation", False)):
+            # CPU message conversion above synchronizes the generated CUDA tensors.
+            self.get_logger().info(
+                f"Generation timing: frames={self.future_len} total_ms={(t2 - t0) * 1000:.3f} "
+                f"budget_ms={self.future_len * self.dt * 1000:.1f}")
 
     def _reset_motion_buffer(self):
         _reset_block_size = self.gen_len + self.future_len  # 18

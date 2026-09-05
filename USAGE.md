@@ -295,6 +295,7 @@ colcon build --packages-select textop_ctrl unitree_go unitree_hg CNPY
 
 # Activate the workspace environment
 source install/setup.bash
+
 ```
 
 Environment Activation: in every time before running

@@ -6,7 +6,7 @@ interface: "eno1" # Interface
 
 use_joystick: 1 # Simulate Unitree WirelessController using a gamepad
 joystick_type: "keyboard" # support "xbox" and "switch" gamepad layout and "keyboard" for keyboard input
-joystick_device: "/dev/input/event5" # Device path
+joystick_device: "/dev/input/by-path/platform-i8042-serio-0-event-kbd" # Built-in keyboard; configurable below via the simulator keyboard input
 joystick_bits: 16 # Some game controllers may only have 8-bit accuracy
 
 print_scene_information: 1 # Print link, joint and sensors information of robot

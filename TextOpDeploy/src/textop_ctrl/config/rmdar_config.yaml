@@ -6,12 +6,16 @@ defaults:
 
 # DAR model configuration
 dar:
-  ckpt: ".../dar.pth"
+  ckpt: "/home/lzy/TextOp_feasibleguided/TextOpRobotMDAR/logs/pretrained/checkpoint/ckpt_200000.pth"
   use_full_sample: true
   guidance_scale: 5.0
+  seed: 0
   device: "cuda"
-  datadir: ".../TextOpRobotMDAR/dataset/BABEL-AMASS-ROBOT-23dof-FULL-50fps"
-  skeleton_assetRoot: ".../TextOpRobotMDAR/description/robots/g1"
+  compile_backend: "tensorrt"
+  allow_compile_fallback: true
+  profile_generation: false
+  datadir: "/home/lzy/TextOp_feasibleguided/TextOpRobotMDAR/dataset/BABEL-AMASS-ROBOT-23dof-FULL-50fps"
+  skeleton_assetRoot: "/home/lzy/TextOp_feasibleguided/TextOpRobotMDAR/description/robots/g1"
 
 # Motion block configuration
 motion_block:

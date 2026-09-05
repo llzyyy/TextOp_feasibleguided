@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <array>
+#include <cstdint>
 
 struct KeyMap {
     static constexpr int start = 0;
